@@ -196,6 +196,8 @@ h2{font-size:clamp(1.2rem,5vmin,1.9rem);letter-spacing:.2em;color:var(--amber);m
 @media (orientation:portrait) and (pointer:coarse){
   .panel-nav{bottom:auto;top:calc(8.8 * var(--ui) + var(--safe-t));min-width:min(44vw,180px)}
   .btn-target{left:50%;right:auto;top:calc(14 * var(--ui) + var(--safe-t));transform:translateX(-50%)}
+  /* the nav stack now owns the top-centre, so drop the toast below the NAV button */
+  #toast{top:calc(18.6 * var(--ui) + var(--safe-t))}
   #btns{bottom:calc(3vh + var(--safe-b))}
 }
 @media (pointer:fine){ .stick-hint{display:none} }
