@@ -1,6 +1,6 @@
 // ===== The player's fighter: geometry, flight model, engine FX =====
 import * as THREE from 'three';
-import { FLIGHT } from './config.js';
+import { FLIGHT, CARGO } from './config.js';
 import { glowSprite } from './textures.js';
 
 const _v = new THREE.Vector3();
@@ -20,6 +20,7 @@ export class Ship {
     this.speed = FLIGHT.minSpeed;
     this.boostFuel = FLIGHT.boostMax;
     this.boosting = false;
+    this.cargo = 0;                          // crates aboard; heavier means slower
     this.forward = new THREE.Vector3(0, 0, -1);
 
     this._build();
@@ -126,6 +127,17 @@ export class Ship {
       this.strobes.push(s);
     });
 
+    // cargo crates, revealed one at a time by setCargo()
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0xb8853a, metalness: 0.3, roughness: 0.7,
+      emissive: 0x3a2405, emissiveIntensity: 0.7 });
+    this.crates = [-0.95, 0.95].map(x => {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.85, 1.7), crateMat);
+      c.position.set(x, -0.95, 0.5);
+      c.visible = false;
+      this.model.add(c);
+      return c;
+    });
+
     this.model.scale.setScalar(1.75);
   }
 
@@ -143,6 +155,24 @@ export class Ship {
     this.boosting = false;
     this.bank = 0;
     this.distance = 0;
+    this.setCargo(0);
+  }
+
+  /** Drop the ship at a spot with its nose pointed somewhere useful. */
+  placeAt(pos, lookTarget) {
+    this.group.position.copy(pos);
+    this.group.quaternion.identity();
+    if (lookTarget) { this.group.lookAt(lookTarget); this.group.rotateY(Math.PI); }
+    this.velocity.set(0, 0, 0);
+    this.angular.set(0, 0, 0);
+    this.speed = FLIGHT.minSpeed;
+  }
+
+  /** Slung crates are visible under the fuselage and cost you top speed. */
+  setCargo(n) {
+    this.cargo = n;
+    if (!this.crates) return;
+    this.crates.forEach((c, i) => { c.visible = i < n; });
   }
 
   get position() { return this.group.position; }
@@ -181,6 +211,7 @@ export class Ship {
     this.throttle = THREE.MathUtils.clamp(input.throttle ?? this.throttle, 0, 1);
     let target = F.minSpeed + (F.cruiseSpeed - F.minSpeed) * this.throttle;
     if (this.boosting) target = F.boostSpeed;
+    if (this.cargo) target *= Math.pow(CARGO.dragFactor, this.cargo);
     if (input.brake) target = F.minSpeed * 0.35;
     const rate = (target < this.speed ? F.brakeAccel : F.accel) * (this.boosting ? 2.4 : 1);
     this.speed += THREE.MathUtils.clamp(target - this.speed, -rate * dt, rate * dt);

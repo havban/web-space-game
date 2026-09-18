@@ -1,16 +1,17 @@
-// ===== Solar Lancer — bootstrap, game loop, HUD, collisions =====
+// ===== Solar Lancer — bootstrap, game loop, HUD, collisions, campaign flow =====
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-import { FLIGHT, COMBAT, QUALITY, SCORE, SUN } from './config.js';
+import { FLIGHT, COMBAT, QUALITY, SCORE, SUN, ENEMY, LEVELS } from './config.js';
 import { World } from './world.js';
 import { Ship } from './ship.js';
 import { Input } from './input.js';
 import { ChaseCamera } from './camera.js';
 import { Lasers, Explosions } from './fx.js';
 import { Audio } from './audio.js';
+import { Campaign } from './missions.js';
 
 const $ = id => document.getElementById(id);
 const _v = new THREE.Vector3();
@@ -23,11 +24,20 @@ const el = {
   pauseMenu: $('pause-menu'), resume: $('btn-resume'), quit: $('btn-quit'),
   over: $('over-menu'), again: $('btn-again'), overTitle: $('over-title'), overSub: $('over-sub'),
   throttle: $('bar-throttle'), boost: $('bar-boost'), hull: $('bar-hull'),
-  speed: $('r-speed'), score: $('r-score'), kills: $('r-kills'),
+  speed: $('r-speed'), score: $('r-score'), kills: $('r-kills'), hostiles: $('r-hostiles'),
   navName: $('nav-name'), navDist: $('nav-dist'),
   marker: $('nav-marker'), markerLabel: $('nav-marker-label'), arrow: $('nav-arrow'),
   toast: $('toast'), oScore: $('o-score'), oKills: $('o-kills'), oDist: $('o-dist'),
   quality: $('quality-seg'), rotate: $('rotate-hint'),
+  // campaign
+  mission: $('panel-mission'), mLevel: $('m-level'), mTitle: $('m-title'),
+  mObjective: $('m-objective'), mProgress: $('m-progress'),
+  cargoChip: $('cargo-chip'), cargoCount: $('cargo-count'), dockChip: $('dock-chip'),
+  bossBar: $('boss-bar'), bossFill: $('boss-fill'),
+  brief: $('brief-menu'), briefLevel: $('brief-level'), briefName: $('brief-name'),
+  briefText: $('brief-text'), briefList: $('brief-list'), briefGo: $('btn-brief-go'),
+  levelDone: $('level-menu'), lvlTitle: $('lvl-title'), lvlSub: $('lvl-sub'),
+  lvlScore: $('lvl-score'), nextLevel: $('btn-next-level'),
 };
 
 // ---------------------------------------------------------------- quality
@@ -43,10 +53,11 @@ function detectQuality() {
 }
 
 const state = {
-  mode: 'menu',            // menu | playing | paused | over
+  mode: 'menu',            // menu | brief | playing | paused | over | debrief
   qualityName: detectQuality(),
   score: 0, kills: 0, invuln: 0, targetIndex: 0,
-  lastTime: 0, hitFlash: 0, started: false,
+  lastTime: 0, hitFlash: 0, levelIndex: 0, levelScore: 0,
+  hull: COMBAT.hullMax,
 };
 
 // ---------------------------------------------------------------- renderer
@@ -77,6 +88,22 @@ const lasers = new Lasers(scene);
 const booms = new Explosions(scene);
 const audio = new Audio();
 const input = new Input({ onAction: handleAction });
+
+const campaign = new Campaign(scene, world, {
+  shipPos: () => ship.position,
+  toast: (msg, danger) => toast(msg, danger),
+  chime: () => audio.chime(),
+  boom: s => audio.boom(s),
+  burst: (p, s, d) => booms.burst(p, s, d),
+  shake: s => chase.addShake(s),
+  score: n => { state.score += n; },
+  damage: (n, why) => damage(n, why, true),
+  repair: n => { state.hull = Math.min(COMBAT.hullMax, state.hull + n); },
+  refuel: n => { ship.boostFuel = Math.min(FLIGHT.boostMax, ship.boostFuel + n); },
+  cargoChanged: n => ship.setCargo(n),
+  missionStart, missionComplete, levelComplete, campaignComplete,
+});
+const _laserTargets = [];
 
 function buildComposer() {
   if (composer) {
@@ -121,14 +148,18 @@ addEventListener('resize', resize);
 addEventListener('orientationchange', () => setTimeout(resize, 220));
 
 // ---------------------------------------------------------------- nav targets
-function navTargets() { return world.bodies.filter(b => !b.name.includes('MOON')); }
+function navTargets() {
+  const list = [campaign.navEntry, ...world.bodies.filter(b => !b.name.includes('MOON'))];
+  if (campaign.station.alive) list.push(campaign.station);
+  if (campaign.base.alive) list.push(campaign.base);
+  return list;
+}
 function currentTarget() { const t = navTargets(); return t[state.targetIndex % t.length]; }
 
 function cycleTarget(delta = 1) {
   const t = navTargets();
   state.targetIndex = (state.targetIndex + delta + t.length) % t.length;
-  const b = currentTarget();
-  toast(`NAV LOCK: ${b.name}`);
+  toast(`NAV LOCK: ${currentTarget().name}`);
   audio.chime();
 }
 
@@ -140,7 +171,7 @@ function handleAction(action) {
       if (state.mode === 'playing') pause();
       else if (state.mode === 'paused') resumeGame();
       break;
-    case 'restart': if (state.mode === 'over') startGame(); break;
+    case 'restart': if (state.mode === 'over') beginLevel(state.levelIndex); break;
   }
 }
 
@@ -153,10 +184,66 @@ function toast(msg, danger = false) {
   toastTimer = setTimeout(() => el.toast.classList.remove('show'), 1800);
 }
 
+// ---------------------------------------------------------------- campaign flow
+const MISSION_KIND = { transport: 'TRANSPORT', combat: 'COMBAT', assault: 'ASSAULT' };
+
+function showBriefing(levelIndex) {
+  state.levelIndex = levelIndex;
+  state.mode = 'brief';
+  const lv = LEVELS[levelIndex];
+  el.briefLevel.textContent = `LEVEL ${levelIndex + 1} / ${LEVELS.length}`;
+  el.briefName.textContent = lv.name;
+  el.briefText.textContent = lv.brief;
+  el.briefList.innerHTML = lv.missions
+    .map(m => `<li><span class="tag">${MISSION_KIND[m.type]}</span><span>${m.title}</span></li>`)
+    .join('');
+  hideAllOverlays();
+  el.brief.classList.remove('hidden');
+  el.hud.classList.add('hidden');
+  el.touch.classList.add('hidden');
+  el.pauseBtn.classList.add('hidden');
+}
+
+function hideAllOverlays() {
+  [el.menu, el.over, el.pauseMenu, el.brief, el.levelDone].forEach(o => o.classList.add('hidden'));
+}
+
+function missionStart(m, index, level) {
+  state.targetIndex = 0;                        // snap the nav back to the objective
+  toast(`MISSION ${index + 1}/${level.missions.length}: ${m.title}`);
+  audio.chime();
+}
+
+function missionComplete(reason) {
+  toast(`${reason} — OBJECTIVE COMPLETE`);
+  audio.chime();
+}
+
+function levelComplete(level, levelIndex) {
+  state.mode = 'debrief';
+  el.lvlTitle.textContent = 'LEVEL CLEAR';
+  el.lvlSub.textContent = `${level.name} secured. The next contract is already waiting.`;
+  el.lvlScore.textContent = Math.round(state.score).toLocaleString();
+  state.score += SCORE.perLevel;
+  hideAllOverlays();
+  el.levelDone.classList.remove('hidden');
+  el.hud.classList.add('hidden');
+  el.touch.classList.add('hidden');
+  el.pauseBtn.classList.add('hidden');
+  audio.silenceEngine();
+  el.nextLevel.textContent = `LEVEL ${levelIndex + 2} ▸`;
+  el.nextLevel.onclick = () => showBriefing(levelIndex + 1);
+}
+
+function campaignComplete() {
+  gameOver('CAMPAIGN COMPLETE', 'Their mothership is a cloud of slag. The system is yours, lancer.', true);
+}
+
 // ---------------------------------------------------------------- game flow
-function startGame() {
+function beginLevel(levelIndex) {
+  state.levelIndex = levelIndex;
   state.mode = 'playing';
-  state.score = 0; state.kills = 0; state.invuln = COMBAT.respawnInvuln;
+  state.invuln = COMBAT.respawnInvuln;
   state.hull = COMBAT.hullMax;
   state.targetIndex = 0;
   ship.reset();
@@ -167,17 +254,23 @@ function startGame() {
   booms.clear();
   input.releaseAll();
 
-  el.menu.classList.add('hidden');
-  el.over.classList.add('hidden');
-  el.pauseMenu.classList.add('hidden');
+  const start = campaign.startLevel(levelIndex, _v.clone());
+  ship.placeAt(start, campaign.station.group.position);
+  chase.reset();
+
+  hideAllOverlays();
   el.hud.classList.remove('hidden');
   el.pauseBtn.classList.remove('hidden');
   el.touch.classList.toggle('hidden', !input.hasTouch);
 
   audio.init();
   audio.resume();
-  toast('LAUNCH — GOOD HUNTING');
   state.lastTime = performance.now();
+}
+
+function startCampaign() {
+  state.score = 0; state.kills = 0;
+  showBriefing(0);
 }
 
 function pause() {
@@ -197,34 +290,42 @@ function resumeGame() {
   state.lastTime = performance.now();
 }
 
-function gameOver(title, sub) {
+function gameOver(title, sub, victory = false) {
   state.mode = 'over';
   el.overTitle.textContent = title;
   el.overSub.textContent = sub;
   el.oScore.textContent = Math.round(state.score).toLocaleString();
   el.oKills.textContent = state.kills;
   el.oDist.textContent = Math.round(ship.distance / 1000).toLocaleString() + 'k';
+  el.again.textContent = victory ? 'FLY AGAIN' : 'RETRY LEVEL';
+  el.again.onclick = () => (victory ? startCampaign() : beginLevel(state.levelIndex));
+  hideAllOverlays();
   el.over.classList.remove('hidden');
   el.hud.classList.add('hidden');
   el.pauseBtn.classList.add('hidden');
   el.touch.classList.add('hidden');
-  ship.setVisible(false);
-  booms.burst(ship.position, 140, 1.2);
-  audio.boom(2);
+  campaign.clearCombat();
+  if (!victory) {
+    ship.setVisible(false);
+    booms.burst(ship.position, 140, 1.2);
+    audio.boom(2);
+    chase.addShake(1.4);
+  }
   audio.silenceEngine();
-  chase.addShake(1.4);
 }
 
-el.play.addEventListener('click', startGame);
-el.again.addEventListener('click', startGame);
+el.play.addEventListener('click', startCampaign);
+el.briefGo.addEventListener('click', () => beginLevel(state.levelIndex));
 el.resume.addEventListener('click', resumeGame);
 el.quit.addEventListener('click', () => {
   state.mode = 'menu';
-  el.pauseMenu.classList.add('hidden');
+  campaign.reset();
+  ship.setCargo(0);
+  hideAllOverlays();
+  el.menu.classList.remove('hidden');
   el.hud.classList.add('hidden');
   el.touch.classList.add('hidden');
   el.pauseBtn.classList.add('hidden');
-  el.menu.classList.remove('hidden');
   audio.silenceEngine();
 });
 el.pauseBtn.addEventListener('click', () => (state.mode === 'playing' ? pause() : resumeGame()));
@@ -271,6 +372,36 @@ function checkCollisions(dt) {
     }
   }
 
+  // capital ships — you bounce off your own mothership, you bleed on theirs
+  for (const cap of [campaign.station, campaign.base]) {
+    if (!cap.alive) continue;
+    const d = pos.distanceTo(cap.group.position);
+    if (d < cap.radius + shipR) {
+      _v.subVectors(pos, cap.group.position).normalize();
+      ship.impulse(_v, (cap.radius + shipR) - d + 3);
+      chase.addShake(0.7);
+      if (!cap.friendly) damage(COMBAT.asteroidDamage * 1.4, `IMPACT: ${cap.name}`, true);
+      else toast('MIND THE PAINT', true);
+    }
+  }
+
+  // enemy fighters — ramming hurts both of you, but it hurts them more
+  for (const e of campaign.squadron.list) {
+    if (!e.alive) continue;
+    const rad = ENEMY.hitRadius + shipR;
+    if (pos.distanceToSquared(e.pos) < rad * rad) {
+      campaign.squadron.kill(e);
+      booms.burst(e.pos, 52, 0.6);
+      audio.boom(1.3);
+      _v.subVectors(pos, e.pos).normalize();
+      ship.impulse(_v, rad);
+      damage(ENEMY.rammingDamage, 'COLLISION: HOSTILE FIGHTER', true);
+      chase.addShake(0.9);
+      state.score += ENEMY.score * 0.5;
+      campaign.onEnemyDown();
+    }
+  }
+
   // asteroids
   for (const r of world.asteroids) {
     if (!r.alive) continue;
@@ -289,7 +420,7 @@ function checkCollisions(dt) {
 }
 
 function damage(amount, reason, flash) {
-  if (state.invuln > 0 || state.mode !== 'playing') return;
+  if (state.invuln > 0 || state.mode !== 'playing' || campaign.docked) return;
   state.hull -= amount;
   if (flash) {
     state.hitFlash = 0.18;
@@ -321,6 +452,8 @@ function updateHUD(dt) {
   el.hull.style.width = hullPct + '%';
   el.hull.className = hullPct < 25 ? 'crit' : hullPct < 55 ? 'warn' : '';
 
+  const m = campaign.hud();
+
   if (hudAccum > 0.08) {
     hudAccum = 0;
     el.speed.textContent = Math.round(ship.speed);
@@ -330,6 +463,21 @@ function updateHUD(dt) {
     el.navDist.textContent = dist > 9999
       ? (dist / 1000).toFixed(1) + 'k u'
       : Math.round(dist) + ' u';
+
+    if (m) {
+      el.hostiles.textContent = m.hostiles;
+      el.mLevel.textContent = `LVL ${m.level}·${m.levelName}  ·  ${m.mission}/${m.missionCount}`;
+      el.mTitle.textContent = m.title;
+      el.mObjective.textContent = m.objective;
+      el.mProgress.style.width = (m.progress * 100) + '%';
+      el.cargoChip.classList.toggle('hidden', !m.cargo);
+      el.cargoCount.textContent = m.cargo;
+      el.dockChip.classList.toggle('hidden', !(m.docked || m.dockHint));
+      el.dockChip.textContent = m.docked ? 'DOCKED — REPAIRING' : (m.dockHint || '');
+      el.dockChip.classList.toggle('active', !!m.docked);
+      el.bossBar.classList.toggle('hidden', m.bossHull === null);
+      if (m.bossHull !== null) el.bossFill.style.width = (m.bossHull * 100) + '%';
+    }
   }
 
   // project the target onto the screen
@@ -365,15 +513,18 @@ function frame(now) {
 
     if (cmd.fire && lasers.fire(ship, dt)) audio.laser();
 
-    lasers.update(dt, world.asteroids, (rock, point) => {
+    campaign.laserTargets(_laserTargets);
+    lasers.update(dt, [world.asteroids, _laserTargets], (target, point) => {
+      if (target.kind) return campaign.onLaserHit(target, point, COMBAT.boltDamage);
       state.kills++;
       state.score += SCORE.perAsteroid;
-      booms.burst(point, rock.scale * 2.2, 0.45);
-      audio.boom(Math.min(1.5, rock.scale / 20));
-      setTimeout(() => world.respawnRock(rock, ship.position), 3500);
+      booms.burst(point, target.scale * 2.2, 0.45);
+      audio.boom(Math.min(1.5, target.scale / 20));
+      setTimeout(() => world.respawnRock(target, ship.position), 3500);
     });
 
     world.update(dt, ship.position);
+    campaign.update(dt, ship, state.invuln > 0);
     booms.update(dt);
     checkCollisions(dt);
     chase.update(dt, ship);
@@ -384,15 +535,15 @@ function frame(now) {
     // menus still get a slowly drifting view of the system
     world.update(dt * 0.35, ship.position);
     booms.update(dt);
-    if (state.mode === 'menu' || state.mode === 'over') {
+    if (state.mode === 'paused') {
+      chase.update(dt * 0.15, ship);
+    } else {
       const t = now / 1000;
       camera.position.set(Math.cos(t * 0.06) * 2400, 700 + Math.sin(t * 0.09) * 300, Math.sin(t * 0.06) * 2400);
       camera.up.set(0, 1, 0);
       camera.lookAt(0, 0, 0);
       camera.fov += (62 - camera.fov) * 0.05;
       camera.updateProjectionMatrix();
-    } else {
-      chase.update(dt * 0.15, ship);
     }
   }
 
@@ -412,6 +563,9 @@ function boot() {
 }
 
 // expose a little for debugging / smoke tests
-window.__game = { state, ship, world, camera, renderer, startGame, applyQuality };
+window.__game = {
+  state, ship, world, camera, renderer, campaign, chase, lasers, applyQuality,
+  startGame: startCampaign, beginLevel, showBriefing,
+};
 
 boot();

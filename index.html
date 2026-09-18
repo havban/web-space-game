@@ -52,7 +52,25 @@
       <div class="readout"><span>SPEED</span><b id="r-speed">0</b><i>u/s</i></div>
       <div class="readout"><span>SCORE</span><b id="r-score">0</b></div>
       <div class="readout"><span>ROCKS</span><b id="r-kills">0</b></div>
+      <div class="readout"><span>HOSTILES</span><b id="r-hostiles">0</b></div>
     </div>
+
+    <!-- mission tracker -->
+    <div class="panel panel-mission" id="panel-mission">
+      <div class="m-head" id="m-level">LVL 1</div>
+      <div class="m-title" id="m-title">SUPPLY RUN</div>
+      <div class="m-obj" id="m-objective">COLLECT CARGO</div>
+      <div class="m-bar"><i id="m-progress"></i></div>
+    </div>
+
+    <!-- status chips -->
+    <div class="chips">
+      <div id="cargo-chip" class="chip cargo hidden">CARGO <b id="cargo-count">0</b></div>
+      <div id="dock-chip" class="chip dock hidden"></div>
+    </div>
+
+    <!-- hostile capital hull -->
+    <div id="boss-bar" class="hidden"><span>ENEMY MOTHERSHIP</span><div class="b-track"><i id="boss-fill"></i></div></div>
 
     <!-- nav target -->
     <div class="panel panel-nav">
@@ -87,7 +105,7 @@
   <div id="menu" class="overlay">
     <div class="menu-card">
       <h1>SOLAR<span>LANCER</span></h1>
-      <p class="tagline">Fly a fighter through the solar system. Dodge the rocks. Don't kiss the sun.</p>
+      <p class="tagline">Five levels of contracts across the solar system: haul cargo, kill raiders, and break their mothership. Dock with your own to patch up.</p>
 
       <div id="loading"><div class="load-bar"><i></i></div><span>WARMING UP THE ENGINES…</span></div>
 
@@ -127,6 +145,26 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="brief-menu" class="overlay hidden">
+    <div class="menu-card">
+      <div class="brief-level" id="brief-level">LEVEL 1 / 5</div>
+      <h2 id="brief-name">SHAKEDOWN</h2>
+      <p id="brief-text" class="tagline"></p>
+      <ul class="brief-list" id="brief-list"></ul>
+      <p class="brief-tip">Dock with your mothership at low speed to repair and refuel.</p>
+      <button id="btn-brief-go" class="cta">LAUNCH</button>
+    </div>
+  </div>
+
+  <div id="level-menu" class="overlay hidden">
+    <div class="menu-card small">
+      <h2 id="lvl-title">LEVEL CLEAR</h2>
+      <p id="lvl-sub"></p>
+      <div class="stats"><div><b id="lvl-score">0</b><span>SCORE</span></div></div>
+      <button id="btn-next-level" class="cta">NEXT LEVEL ▸</button>
     </div>
   </div>
 

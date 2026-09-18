@@ -55,4 +55,90 @@ export const QUALITY = {
   high:   { bloom:true,  dpr:2.0,  stars:9000, shadows:false, sunDetail:64 },
 };
 
-export const SCORE = { perAsteroid:100, perPlanetVisit:750, distanceDivisor:120 };
+export const SCORE = { perAsteroid:100, perPlanetVisit:750, distanceDivisor:120,
+  perMission:1500, perCrate:600, perLevel:4000 };
+
+// ===== Combatants =====
+
+export const ENEMY = {
+  hull: 14, speed: 300, turnRate: 1.15,
+  fireRange: 950, fireInterval: 0.85, boltSpeed: 1500, boltDamage: 7, fireCone: 0.93,
+  engageRange: 3200, breakRange: 320, hitRadius: 23,
+  score: 300, max: 16, spawnDist: 1800, leashDist: 7000,
+  rammingDamage: 34,
+};
+
+// Both motherships are the same hull class; only the paint and the guns differ.
+export const CAPITAL = {
+  hitRadius: 170,                  // you will bounce off anything closer than this
+  // friendly side
+  dockRadius: 320, dockSpeed: 240, repairRate: 26, refuelRate: 55,
+  // hostile side
+  baseHull: 420, shielded: 0.22,   // damage multiplier while any turret still stands
+  turretHull: 22, turretRadius: 30, turretRange: 1400,
+  turretInterval: 2.4, turretDamage: 8, turretBoltSpeed: 1250,
+};
+
+export const CARGO = { radius: 340, dragFactor: 0.86 };
+
+// Player bolts do flat damage to ships; rocks still die in one hit.
+COMBAT.boltDamage = 4;
+
+// ===== Campaign =====
+// Each level parks the mothership near `home` and strings together a few missions.
+// Mission anchors resolve to a planet name, or 'STATION' / 'BASE' for the capitals.
+
+export const LEVELS = [
+  {
+    name: 'SHAKEDOWN',
+    home: 'EARTH',
+    brief: 'Fresh out of the yard. Run a crate to the Mars garrison, then swat the scavengers ' +
+           'that followed you home. Dock with the mothership any time to patch your hull.',
+    missions: [
+      { type: 'transport', title: 'SUPPLY RUN', from: 'STATION', to: 'MARS', crates: 1, threat: 0 },
+      { type: 'combat', title: 'SCAVENGER SWEEP', count: 4, wave: 2 },
+    ],
+  },
+  {
+    name: 'BELT PATROL',
+    home: 'MARS',
+    brief: 'Raiders are picking off ore convoys inside the belt. Clear the lane, then haul the ' +
+           'ore out to the Jovian smelters yourself.',
+    missions: [
+      { type: 'combat', title: 'CLEAR THE LANE', count: 6, wave: 3 },
+      { type: 'transport', title: 'ORE HAUL', from: 'STATION', to: 'JUPITER', crates: 2, threat: 2 },
+    ],
+  },
+  {
+    name: 'FIRST STRIKE',
+    home: 'JUPITER',
+    brief: 'Scouts found a raider staging post hiding in Jupiter\'s shadow. Burn off its screen, ' +
+           'knock out the turrets, then put the hulk down.',
+    missions: [
+      { type: 'combat', title: 'SCREEN THE APPROACH', count: 6, wave: 3 },
+      { type: 'assault', title: 'KILL THE STAGING POST', anchor: 'JUPITER', hull: 420, turrets: 6 },
+    ],
+  },
+  {
+    name: 'DEEP WATER',
+    home: 'SATURN',
+    brief: 'The ring crews are stranded and the blockade is tightening. Get them out, hold the ' +
+           'gap while they run, and break whatever is sitting on the rings.',
+    missions: [
+      { type: 'transport', title: 'EVACUATE THE RING CREWS', from: 'SATURN', to: 'STATION', crates: 2, threat: 3 },
+      { type: 'combat', title: 'HOLD THE GAP', count: 8, wave: 4 },
+      { type: 'assault', title: 'BREAK THE BLOCKADE', anchor: 'SATURN', hull: 520, turrets: 7 },
+    ],
+  },
+  {
+    name: 'THE OUTER DARK',
+    home: 'NEPTUNE',
+    brief: 'Their mothership is out past Neptune where the sun is just another star. Cut the ' +
+           'picket, run the warheads up to the Uranus battery, and finish this.',
+    missions: [
+      { type: 'combat', title: 'CUT THE PICKET', count: 9, wave: 4 },
+      { type: 'transport', title: 'RUN THE WARHEADS OUT', from: 'STATION', to: 'URANUS', crates: 2, threat: 4 },
+      { type: 'assault', title: 'DESTROY THE MOTHERSHIP', anchor: 'NEPTUNE', hull: 680, turrets: 8 },
+    ],
+  },
+];

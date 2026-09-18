@@ -46,8 +46,12 @@ export class Lasers {
     return true;
   }
 
-  /** Move bolts and test them against rocks; onHit(rock, point) per kill. */
-  update(dt, asteroids, onHit) {
+  /**
+   * Move bolts and test them against every target group.
+   * Groups hold anything shaped like { pos, scale, alive } — rocks, fighters, capitals.
+   * onHit(target, point) may return false to absorb the hit and keep the target alive.
+   */
+  update(dt, groups, onHit) {
     for (const b of this.pool) {
       if (!b.alive) continue;
       b.prev.copy(b.mesh.position);
@@ -58,18 +62,20 @@ export class Lasers {
       // swept sphere test against the segment prev -> pos
       _a.subVectors(b.mesh.position, b.prev);
       const segLen2 = _a.lengthSq() || 1;
-      for (const r of asteroids) {
-        if (!r.alive) continue;
-        _b.subVectors(r.pos, b.prev);
-        const t = THREE.MathUtils.clamp(_b.dot(_a) / segLen2, 0, 1);
-        _v.copy(b.prev).addScaledVector(_a, t);
-        const rad = r.scale + 7;
-        if (_v.distanceToSquared(r.pos) < rad * rad) {
-          r.alive = false;
-          b.alive = false;
-          b.mesh.visible = false;
-          onHit(r, _v);
-          break;
+      for (const group of groups) {
+        if (!b.alive) break;
+        for (const r of group) {
+          if (!r.alive) continue;
+          _b.subVectors(r.pos, b.prev);
+          const t = THREE.MathUtils.clamp(_b.dot(_a) / segLen2, 0, 1);
+          _v.copy(b.prev).addScaledVector(_a, t);
+          const rad = r.scale + 7;
+          if (_v.distanceToSquared(r.pos) < rad * rad) {
+            b.alive = false;
+            b.mesh.visible = false;
+            if (onHit(r, _v) !== false) r.alive = false;
+            break;
+          }
         }
       }
     }
