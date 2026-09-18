@@ -79,7 +79,11 @@ const audio = new Audio();
 const input = new Input({ onAction: handleAction });
 
 function buildComposer() {
-  if (composer) { composer.dispose?.(); composer = null; bloomPass = null; }
+  if (composer) {
+    composer.passes.forEach(pass => pass.dispose?.());   // bloom keeps its own render targets
+    composer.dispose?.();
+    composer = null; bloomPass = null;
+  }
   if (!quality.bloom) return;
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
